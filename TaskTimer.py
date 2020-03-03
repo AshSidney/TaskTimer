@@ -1,4 +1,5 @@
 import tkinter
+import tkinter.ttk
 import time
 import json
 
@@ -6,9 +7,12 @@ import json
 class TaskTimerApp(tkinter.Frame):
   def __init__(self, master=None):
     super().__init__(master)
-    self.pack()
-    self.currentButton = tkinter.Button(self, text='Pokus')
-    self.currentButton.pack()
+    master.grid_rowconfigure(0, weight=1)
+    master.grid_columnconfigure(0, weight=1)
+    self.grid(column=0, row=0, sticky=tkinter.NSEW)
+
+    self.currentTask = tkinter.ttk.Label(self, text='Pokus')
+    self.currentTask.grid(column=0, row=0)
 
 
 class TaskState(object):
@@ -42,12 +46,14 @@ class TasksData(object):
       self.tasks = []
       self.times = []
     else:
-      data = json.load(dataFile)
-      self.tasks = [TaskState(item) for item in data['tasks']]
-      self.times = [TaskTime(item) for item in data['times']]
+      with dataFile as source:
+        data = json.load(source)
+        self.tasks = [TaskState(item) for item in data['tasks']]
+        self.times = [TaskTime(item) for item in data['times']]
 
-  def save(self, data):
-    json.dump({ 'tasks' : [item.__dict__ for item in self.tasks], 'times' : [item.__dict__ for item in self.times] }, data)
+  def save(self, dataFile):
+    with dataFile as target:
+      json.dump({ 'tasks' : [item.__dict__ for item in self.tasks], 'times' : [item.__dict__ for item in self.times] }, target)
 
   def find(self, task):
     for item in self.tasks:
@@ -78,6 +84,26 @@ class TasksData(object):
     if len(self.times) > 0 and self.times[-1].name == task:
       sumTime += time.time() - self.times[-1].getTime()
     return sumTime
+
+  def updateTaskTime(self, task, time):
+    item = self.find(task)
+    if item is not None:
+      item.reportedTime += time
+
+
+class DataFile(object):
+  def __init__(self, fileName):
+    self.fileName = fileName
+
+  def forLoad(self):
+    try:
+      return open(self.fileName, 'r')
+    except:
+      return None
+
+  def forSave(self):
+    return open(self.fileName, 'w')
+
 
 if __name__ == '__main__':
   root = tkinter.Tk()
