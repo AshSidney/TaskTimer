@@ -145,6 +145,43 @@ class Test_TaskTimerTest(unittest.TestCase):
     self.assertFalse(taskData.tasks[1].active)
     self.assertEqual(len(taskData.times), 3)
 
+  def test_TasksDataGetLastTask(self):
+    data = io.StringIO('''{ "tasks" : [ { "name" : "SDC-001", "reportedTime" : 15000.0, "active" : true },
+      { "name" : "SDC-002", "reportedTime" : 0.0, "active" : false } ],
+      "times" : [ { "name" : "SDC-001", "time" : [2020, 2, 26, 7, 43, 0, 2, 57, -1] },
+      { "name" : null, "time" : [2020, 2, 26, 11, 21, 30, 2, 57, -1] },
+      { "name" : "SDC-002", "time" : [2020, 2, 26, 11, 50, 45, 2, 57, -1] },
+      { "name" : null, "time" : [2020, 2, 26, 16, 42, 30, 2, 57, -1] },
+      { "name" : "SDC-002", "time" : [2020, 2, 27, 7, 10, 0, 3, 58, -1] },
+      { "name" : "SDC-001", "time" : [2020, 2, 27, 9, 55, 0, 3, 58, -1] } ] }''')
+    taskData = TasksData(data)
+    self.assertEqual(taskData.getLastTask(), 'SDC-001')
+    data = io.StringIO('''{ "tasks" : [ { "name" : "SDC-001", "reportedTime" : 15000.0, "active" : true },
+      { "name" : "SDC-002", "reportedTime" : 0.0, "active" : true } ],
+      "times" : [ { "name" : "SDC-001", "time" : [2020, 2, 26, 7, 43, 0, 2, 57, -1] },
+      { "name" : null, "time" : [2020, 2, 26, 11, 21, 30, 2, 57, -1] },
+      { "name" : "SDC-002", "time" : [2020, 2, 26, 11, 50, 45, 2, 57, -1] },
+      { "name" : null, "time" : [2020, 2, 26, 16, 42, 30, 2, 57, -1] } ] }''')
+    taskData = TasksData(data)
+    self.assertEqual(taskData.getLastTask(), 'SDC-002')
+    data = io.StringIO('''{ "tasks" : [ { "name" : "SDC-001", "reportedTime" : 15000.0, "active" : true },
+      { "name" : "SDC-002", "reportedTime" : 0.0, "active" : false } ],
+      "times" : [ { "name" : "SDC-001", "time" : [2020, 2, 26, 7, 43, 0, 2, 57, -1] },
+      { "name" : null, "time" : [2020, 2, 26, 11, 21, 30, 2, 57, -1] },
+      { "name" : "SDC-002", "time" : [2020, 2, 26, 11, 50, 45, 2, 57, -1] },
+      { "name" : null, "time" : [2020, 2, 26, 16, 42, 30, 2, 57, -1] },
+      { "name" : "SDC-002", "time" : [2020, 2, 27, 7, 10, 0, 3, 58, -1] } ] }''')
+    taskData = TasksData(data)
+    self.assertEqual(taskData.getLastTask(), '')
+
+  def test_TasksDataGetActiveTasks(self):
+    data = io.StringIO('''{ "tasks" : [ { "name" : "SDC-001", "reportedTime" : 150.0, "active" : true },
+      { "name" : "SDC-002", "reportedTime" : 78.0, "active" : false },
+      { "name" : "SDC-005", "reportedTime" : 0.0, "active" : true } ],
+      "times" : [] }''')
+    taskData = TasksData(data)
+    self.assertEqual(taskData.getActiveTasks(), ['SDC-001', 'SDC-005'])
+
   def test_TasksDataGetTaskTime(self):
     data = io.StringIO('''{ "tasks" : [ { "name" : "SDC-001", "reportedTime" : 15000.0, "active" : true },
       { "name" : "SDC-002", "reportedTime" : 0.0, "active" : false } ],

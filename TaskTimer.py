@@ -11,8 +11,33 @@ class TaskTimerApp(tkinter.Frame):
     master.grid_columnconfigure(0, weight=1)
     self.grid(column=0, row=0, sticky=tkinter.NSEW)
 
-    self.currentTask = tkinter.ttk.Label(self, text='Pokus')
-    self.currentTask.grid(column=0, row=0)
+    self.dataFile = DataFile('tasksData.json')
+    self.tasks = TasksData(self.dataFile.forLoad())
+
+    self.currentTask = tkinter.StringVar()
+    self.currentTaskLabel = tkinter.ttk.Label(self, textvariable=self.currentTask, font=('Helvetica', 16))
+    self.currentTaskLabel.grid(column=0, row=0)
+    self.currentTime = tkinter.StringVar()
+    self.currentTimeLabel = tkinter.ttk.Label(self, textvariable=self.currentTime, font=('Helvetica', 14))
+    self.currentTimeLabel.grid(column=1, row=0)
+    self.taskBox = tkinter.ttk.Combobox(self, values=self.tasks.getActiveTasks())
+    self.taskBox.grid(column=0, row=1)
+    self.setTaskButton = tkinter.Button(self, text='Set', command=self.setTask)
+    self.setTaskButton.grid(column=1, row=1)
+
+    self.refresh()
+
+  def refresh(self):
+    self.currentTask.set(self.tasks.getLastTask())
+    self.currentTime.set(str(self.tasks.getTaskTimeTillNow(self.currentTask.get())))
+    self.after(1000, self.refresh)
+
+  def finish(self):
+    self.tasks.save(self.dataFile.forSave())
+
+  def setTask(self):
+    self.tasks.add(self.taskBox.get())
+    print('set task', self.taskBox.get())
 
 
 class TaskState(object):
@@ -71,6 +96,18 @@ class TasksData(object):
     if item is not None:
       item.active = False
 
+  def getLastTask(self):
+    for index in range(len(self.times) - 1, -1, -1):
+      if self.times[index].name is not None:
+        item = self.find(self.times[index].name)
+        if item is not None and item.active:
+          return item.name
+        break
+    return ''
+
+  def getActiveTasks(self):
+    return [item.name for item in self.tasks if item.active]
+
   def getTaskTime(self, task):
     item = self.find(task)
     sumTime = -item.reportedTime if item is not None else 0.0
@@ -109,3 +146,4 @@ if __name__ == '__main__':
   root = tkinter.Tk()
   app = TaskTimerApp(master=root)
   app.mainloop()
+  app.finish()
