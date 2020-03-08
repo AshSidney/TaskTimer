@@ -88,6 +88,33 @@ class Test_TaskTimerTest(unittest.TestCase):
     self.assertEqual(taskData.times[1].getTime() - taskData.times[0].getTime(), 4 * 3600 - 22 * 60 + 30)
     self.assertEqual(taskData.times[2].getTime() - taskData.times[1].getTime(), 29 * 60 + 15)
 
+  def test_TasksDataFromJsonReactivateTask(self):
+    beforeTime = int(time.time())
+    data = DataIO('''{ "tasks" : [ {"name" : "SDC-001", "reportedTime" : 0.0, "active" : true},
+      {"name" : "SDC-002", "reportedTime" : 780.0, "active" : true} ],
+      "times" : [ { "name" : "SDC-001", "time" : [2020, 2, 26, 7, 43, 0, 2, 57, -1] },
+      { "name" : "SDC-002", "time" : [2020, 2, 26, 11, 21, 30, 2, 57, -1] },
+      { "name" : null, "time" : [2020, 2, 26, 11, 50, 45, 2, 57, -1] } ] }''')
+    taskData = TasksData(data)
+    self.assertRaises(ValueError, data.getvalue)
+    self.assertEqual(len(taskData.tasks), 2)
+    self.assertEqual(taskData.tasks[0].name, 'SDC-001')
+    self.assertEqual(taskData.tasks[0].reportedTime, 0.0)
+    self.assertTrue(taskData.tasks[0].active)
+    self.assertEqual(taskData.tasks[1].name, 'SDC-002')
+    self.assertEqual(taskData.tasks[1].reportedTime, 780.0)
+    self.assertTrue(taskData.tasks[1].active)
+    self.assertEqual(len(taskData.times), 4)
+    self.assertEqual(taskData.times[0].name, 'SDC-001')
+    self.assertEqual(taskData.times[0].time, time.struct_time((2020, 2, 26, 7, 43, 0, 2, 57, -1)))
+    self.assertEqual(taskData.times[1].name, 'SDC-002')
+    self.assertEqual(taskData.times[1].time, time.struct_time((2020, 2, 26, 11, 21, 30, 2, 57, -1)))
+    self.assertEqual(taskData.times[2].name, None)
+    self.assertEqual(taskData.times[2].time, time.struct_time((2020, 2, 26, 11, 50, 45, 2, 57, -1)))
+    self.assertEqual(taskData.times[3].name, 'SDC-002')
+    self.assertGreaterEqual(taskData.times[3].getTime(), beforeTime)
+    self.assertLessEqual(taskData.times[3].getTime(), time.time())
+
   def test_TasksDataToJson(self):
     taskData = TasksData()
     self.assertEqual(taskData.tasks, [])
@@ -248,6 +275,62 @@ class Test_TaskTimerTest(unittest.TestCase):
         self.assertEqual(len(data), 2)
         self.assertEqual(data['first'], 123)
         self.assertEqual(data['second'], 'just string')
+
+  def test_TimeFormatterInit(self):
+    format = TimeFormatter('dh', True)
+    self.assertEqual(format.units, [('d', 8 * 3600), ('h', 3600)])
+    self.assertEqual(format.order, [0, 1])
+    format = TimeFormatter('hms', True)
+    self.assertEqual(format.units, [('h', 3600), ('m', 60), ('s', 1)])
+    self.assertEqual(format.order, [0, 1, 2])
+    format = TimeFormatter('hmd', True)
+    self.assertEqual(format.units, [('d', 8 * 3600), ('h', 3600), ('m', 60)])
+    self.assertEqual(format.order, [2, 0, 1])
+
+  def test_TimeFormatterRound(self):
+    format = TimeFormatter('dh', True)
+    self.assertEqual(format.round(4.1 * 3600), 5 * 3600)
+    self.assertEqual(format.round(2.7 * 3600), 3 * 3600)
+    self.assertEqual(format.round(7 * 3600), 7 * 3600)
+    format = TimeFormatter('ms', True)
+    self.assertEqual(format.round(15 * 60 + 51.2), 15 * 60 + 52)
+    self.assertEqual(format.round(4 * 60 + 59.5), 5 * 60)
+
+  def test_TimeFormatterSplit(self):
+    format = TimeFormatter('dh', True)
+    self.assertEqual(format.split(21 * 3600), [(2, 'd'), (5, 'h')])
+    format = TimeFormatter('dhms', True)
+    self.assertEqual(format.split(26 * 3600 + 34 * 60 + 12), [(3, 'd'), (2, 'h'), (34, 'm'), (12, 's')])
+    self.assertEqual(format.split(5 * 3600 + 4 * 60), [(0, 'd'), (5, 'h'), (4, 'm'), (0, 's')])
+    self.assertEqual(format.split(10 * 3600 + 26), [(1, 'd'), (2, 'h'), (0, 'm'), (26, 's')])
+
+  def test_TimeFormatterTrim(self):
+    format = TimeFormatter('d', True)
+    self.assertEqual(format.trim([(2, 'd'), (10, 'h'), (0, 'm'), (0, 's')]), ([(2, 'd'), (10, 'h')], 0))
+    self.assertEqual(format.trim([(0, 'd'), (10, 'h'), (0, 'm'), (42, 's')]), ([(10, 'h'), (0, 'm'), (42, 's')], 1))
+    format = TimeFormatter('d', False)
+    self.assertEqual(format.trim([(2, 'd'), (10, 'h'), (0, 'm'), (0, 's')]), ([(2, 'd'), (10, 'h'), (0, 'm'), (0, 's')], 0))
+    self.assertEqual(format.trim([(0, 'd'), (10, 'h'), (0, 'm'), (42, 's')]), ([(10, 'h'), (0, 'm'), (42, 's')], 1))
+
+  def test_TimeFormatterDaysHours(self):
+    format = TimeFormatter('dh', True)
+    self.assertEqual(format.get(5 * 3600), '5h')
+    self.assertEqual(format.get(6.2 * 3600), '7h')
+    self.assertEqual(format.get(12.7 * 3600), '1d 5h')
+    self.assertEqual(format.get(15.9 * 3600), '2d')
+    self.assertEqual(format.get(16.1 * 3600), '2d 1h')
+
+  def test_TimeFormatterDaysHoursMinutesSeconds(self):
+    format = TimeFormatter('dhms', False)
+    self.assertEqual(format.get(4 * 3600 + 44 * 60 + 24.6), '4h 44m 25s')
+    self.assertEqual(format.get(26 * 3600 + 10 * 60 + 51), '3d 2h 10m 51s')
+    self.assertEqual(format.get(8 * 3600 + 5 * 60 + 59.1), '1d 0h 6m 0s')
+
+  def test_TimeFormatterUnorderedDaysHours(self):
+    format = TimeFormatter('hd', False)
+    self.assertEqual(format.get(4.1 * 3600), '5h')
+    self.assertEqual(format.get(27 * 3600 + 10 * 60), '4h 3d')
+    self.assertEqual(format.get(8 * 3600), '0h 1d')
 
 
 if __name__ == '__main__':

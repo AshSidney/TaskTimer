@@ -2,6 +2,7 @@ import tkinter
 import tkinter.ttk
 import time
 import json
+import math
 
 
 class TaskTimerApp(tkinter.Frame):
@@ -14,30 +15,39 @@ class TaskTimerApp(tkinter.Frame):
     self.dataFile = DataFile('tasksData.json')
     self.tasks = TasksData(self.dataFile.forLoad())
 
+    lastTask = self.tasks.getLastTask()
     self.currentTask = tkinter.StringVar()
+    self.currentTask.set(lastTask)
     self.currentTaskLabel = tkinter.ttk.Label(self, textvariable=self.currentTask, font=('Helvetica', 16))
     self.currentTaskLabel.grid(column=0, row=0)
     self.currentTime = tkinter.StringVar()
     self.currentTimeLabel = tkinter.ttk.Label(self, textvariable=self.currentTime, font=('Helvetica', 14))
     self.currentTimeLabel.grid(column=1, row=0)
     self.taskBox = tkinter.ttk.Combobox(self, values=self.tasks.getActiveTasks())
+    self.taskBox.set(lastTask)
     self.taskBox.grid(column=0, row=1)
     self.setTaskButton = tkinter.Button(self, text='Set', command=self.setTask)
     self.setTaskButton.grid(column=1, row=1)
 
-    self.refresh()
-
-  def refresh(self):
-    self.currentTask.set(self.tasks.getLastTask())
-    self.currentTime.set(str(self.tasks.getTaskTimeTillNow(self.currentTask.get())))
-    self.after(1000, self.refresh)
+    self.repeatedRefresh()
 
   def finish(self):
+    self.tasks.add(None)
     self.tasks.save(self.dataFile.forSave())
 
+  def refresh(self):
+    format = TimeFormatter('dhms')
+    self.currentTime.set(format.get(self.tasks.getTaskTimeTillNow(self.currentTask.get())))
+
+  def repeatedRefresh(self):
+    self.refresh()
+    self.after(1000, self.repeatedRefresh)
+
   def setTask(self):
-    self.tasks.add(self.taskBox.get())
-    print('set task', self.taskBox.get())
+    newTask = self.taskBox.get()
+    self.tasks.add(newTask)
+    self.currentTask.set(newTask)
+    self.refresh()
 
 
 class TaskState(object):
@@ -75,6 +85,9 @@ class TasksData(object):
         data = json.load(source)
         self.tasks = [TaskState(item) for item in data['tasks']]
         self.times = [TaskTime(item) for item in data['times']]
+        lastTask = self.getLastTask()
+        if lastTask != '' and self.times[-1].name is None:
+          self.add(lastTask)
 
   def save(self, dataFile):
     with dataFile as target:
@@ -140,6 +153,46 @@ class DataFile(object):
 
   def forSave(self):
     return open(self.fileName, 'w')
+
+
+class TimeFormatter(object):
+  def __init__(self, format, trimRight):
+    self.units = []
+    self.order = []
+    self.trimRight = trimRight
+    for unit in (('d', 8 * 3600), ('h', 3600), ('m', 60), ('s', 1)):
+      index = format.find(unit[0])
+      if index >= 0:
+        self.units.append(unit)
+        self.order.append(index)
+
+  def round(self, value):
+    divisor = self.units[-1][1]
+    return value if value % divisor == 0 else (int(value / divisor) + 1) * divisor
+
+  def split(self, value):
+    values = []
+    for unit in self.units:
+      unitValue = int(value / unit[1])
+      value -= unitValue * unit[1]
+      values.append((unitValue, unit[0]))
+    return values
+
+  def trim(self, values):
+    first = -1
+    last = len(values)
+    for item in enumerate(values):
+      if item[1][0] > 0:
+        if first < 0:
+          first = item[0]
+        if self.trimRight:
+          last = item[0] + 1
+    return values[first:last], first
+
+  def get(self, timeValue):
+    values, offset = self.trim(self.split(self.round(timeValue)))
+    sortedValues = sorted(zip(self.order[offset:], values), key=lambda item : item[0])
+    return ' '.join(str(item[1][0]) + item[1][1] for item in sortedValues)
 
 
 if __name__ == '__main__':
