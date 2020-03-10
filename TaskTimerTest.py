@@ -310,7 +310,7 @@ class Test_TaskTimerTest(unittest.TestCase):
     self.assertEqual(format.trim([(0, 'd'), (10, 'h'), (0, 'm'), (42, 's')]), ([(10, 'h'), (0, 'm'), (42, 's')], 1))
     format = TimeFormatter('d', False)
     self.assertEqual(format.trim([(2, 'd'), (10, 'h'), (0, 'm'), (0, 's')]), ([(2, 'd'), (10, 'h'), (0, 'm'), (0, 's')], 0))
-    self.assertEqual(format.trim([(0, 'd'), (10, 'h'), (0, 'm'), (42, 's')]), ([(10, 'h'), (0, 'm'), (42, 's')], 1))
+    self.assertEqual(format.trim([(0, 'd'), (10, 'h'), (0, 'm'), (42, 's')]), ([(0, 'd'), (10, 'h'), (0, 'm'), (42, 's')], 0))
 
   def test_TimeFormatterDaysHours(self):
     format = TimeFormatter('dh', True)
@@ -322,13 +322,13 @@ class Test_TaskTimerTest(unittest.TestCase):
 
   def test_TimeFormatterDaysHoursMinutesSeconds(self):
     format = TimeFormatter('dhms', False)
-    self.assertEqual(format.get(4 * 3600 + 44 * 60 + 24.6), '4h 44m 25s')
+    self.assertEqual(format.get(4 * 3600 + 44 * 60 + 24.6), '0d 4h 44m 25s')
     self.assertEqual(format.get(26 * 3600 + 10 * 60 + 51), '3d 2h 10m 51s')
     self.assertEqual(format.get(8 * 3600 + 5 * 60 + 59.1), '1d 0h 6m 0s')
 
   def test_TimeFormatterUnorderedDaysHours(self):
     format = TimeFormatter('hd', False)
-    self.assertEqual(format.get(4.1 * 3600), '5h')
+    self.assertEqual(format.get(4.1 * 3600), '5h 0d')
     self.assertEqual(format.get(27 * 3600 + 10 * 60), '4h 3d')
     self.assertEqual(format.get(8 * 3600), '0h 1d')
 

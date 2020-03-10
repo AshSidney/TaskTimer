@@ -3,6 +3,10 @@ import tkinter.ttk
 import time
 import json
 import math
+import win32gui
+import win32process
+import win32api
+import win32con
 
 
 class TaskTimerApp(tkinter.Frame):
@@ -14,6 +18,7 @@ class TaskTimerApp(tkinter.Frame):
 
     self.dataFile = DataFile('tasksData.json')
     self.tasks = TasksData(self.dataFile.forLoad())
+    self.workstationActive = True
 
     lastTask = self.tasks.getLastTask()
     self.currentTask = tkinter.StringVar()
@@ -23,6 +28,7 @@ class TaskTimerApp(tkinter.Frame):
     self.currentTime = tkinter.StringVar()
     self.currentTimeLabel = tkinter.ttk.Label(self, textvariable=self.currentTime, font=('Helvetica', 14))
     self.currentTimeLabel.grid(column=1, row=0)
+    self.currentTimeFormat = TimeFormatter('dhms', False)
     self.taskBox = tkinter.ttk.Combobox(self, values=self.tasks.getActiveTasks())
     self.taskBox.set(lastTask)
     self.taskBox.grid(column=0, row=1)
@@ -36,18 +42,34 @@ class TaskTimerApp(tkinter.Frame):
     self.tasks.save(self.dataFile.forSave())
 
   def refresh(self):
-    format = TimeFormatter('dhms')
-    self.currentTime.set(format.get(self.tasks.getTaskTimeTillNow(self.currentTask.get())))
+    self.currentTime.set(self.currentTimeFormat.get(self.tasks.getTaskTimeTillNow(self.currentTask.get())))
 
   def repeatedRefresh(self):
-    self.refresh()
+    if self.workstationActive == self.isWorkstationLocked():
+      self.workstationActive = not self.workstationActive
+      self.tasks.add(self.currentTask.get() if self.workstationActive else None)
+    if self.workstationActive:
+      self.refresh()
     self.after(1000, self.repeatedRefresh)
 
   def setTask(self):
     newTask = self.taskBox.get()
     self.tasks.add(newTask)
     self.currentTask.set(newTask)
+    self.taskBox['values'] = self.tasks.getActiveTasks()
     self.refresh()
+
+  def isWorkstationLocked(self):
+    windowId = win32gui.GetForegroundWindow()
+    if windowId == 0:
+      return True
+    thrid, pid = win32process.GetWindowThreadProcessId(windowId)
+    try:
+      handle = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS, False, pid)
+      fileName = win32process.GetModuleFileNameEx(handle, 0)
+      return'LockApp' in fileName
+    except Exception:
+      return False
 
 
 class TaskState(object):
@@ -156,10 +178,10 @@ class DataFile(object):
 
 
 class TimeFormatter(object):
-  def __init__(self, format, trimRight):
+  def __init__(self, format, trimZeros):
     self.units = []
     self.order = []
-    self.trimRight = trimRight
+    self.trimZeros = trimZeros
     for unit in (('d', 8 * 3600), ('h', 3600), ('m', 60), ('s', 1)):
       index = format.find(unit[0])
       if index >= 0:
@@ -179,13 +201,13 @@ class TimeFormatter(object):
     return values
 
   def trim(self, values):
-    first = -1
+    first = -1 if self.trimZeros else 0
     last = len(values)
     for item in enumerate(values):
       if item[1][0] > 0:
         if first < 0:
           first = item[0]
-        if self.trimRight:
+        if self.trimZeros:
           last = item[0] + 1
     return values[first:last], first
 
