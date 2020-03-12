@@ -12,6 +12,7 @@ import win32con
 class TaskTimerApp(tkinter.Frame):
   def __init__(self, master=None):
     super().__init__(master)
+    master.title('Task Timer')
     master.grid_rowconfigure(0, weight=1)
     master.grid_columnconfigure(0, weight=1)
     self.grid(column=0, row=0, sticky=tkinter.NSEW)
@@ -27,30 +28,44 @@ class TaskTimerApp(tkinter.Frame):
     self.currentTaskLabel.grid(column=0, row=0)
     self.currentTime = tkinter.StringVar()
     self.currentTimeLabel = tkinter.ttk.Label(self, textvariable=self.currentTime, font=('Helvetica', 14))
-    self.currentTimeLabel.grid(column=1, row=0)
+    self.currentTimeLabel.grid(column=1, row=0, columnspan=2)
     self.currentTimeFormat = TimeFormatter('dhms', False)
     self.taskBox = tkinter.ttk.Combobox(self, values=self.tasks.getActiveTasks())
     self.taskBox.set(lastTask)
     self.taskBox.grid(column=0, row=1)
-    self.setTaskButton = tkinter.Button(self, text='Set', command=self.setTask)
-    self.setTaskButton.grid(column=1, row=1)
+    self.setTaskButton = tkinter.Button(self, text='Set Selected Task', command=self.setTask)
+    self.setTaskButton.grid(column=1, row=1, columnspan=2)
+    self.copyTimeButton = tkinter.Button(self, text='Copy Time', command=self.copyTime)
+    self.copyTimeButton.grid(column=1, row=2)
+    self.deleteTaskButton = tkinter.Button(self, text='Delete Task', command=self.deleteTask)
+    self.deleteTaskButton.grid(column=2, row=2)
+    self.keepWhenClosedButton = tkinter.Button(self, text='Keep Timing When Closed', command=self.keepTiming, relief=self.getKeepTimingButtonRelief())
+    self.keepWhenClosedButton.grid(column=0, row=2)
 
     self.repeatedRefresh()
 
-  def finish(self):
-    self.tasks.add(None)
+  def save(self):
     self.tasks.save(self.dataFile.forSave())
+
+  def finish(self):
+    self.save()
 
   def refresh(self):
     self.currentTime.set(self.currentTimeFormat.get(self.tasks.getTaskTimeTillNow(self.currentTask.get())))
 
   def repeatedRefresh(self):
-    if self.workstationActive == self.isWorkstationLocked():
-      self.workstationActive = not self.workstationActive
-      self.tasks.add(self.currentTask.get() if self.workstationActive else None)
+    self.checkLock()
     if self.workstationActive:
       self.refresh()
     self.after(1000, self.repeatedRefresh)
+
+  def checkLock(self):
+    if self.workstationActive == self.isWorkstationLocked():
+      self.workstationActive = not self.workstationActive
+      self.save()
+      if self.workstationActive:
+        self.tasks.continueLastTask()
+        self.setKeepTimingButtonRelief()
 
   def setTask(self):
     newTask = self.taskBox.get()
@@ -58,6 +73,29 @@ class TaskTimerApp(tkinter.Frame):
     self.currentTask.set(newTask)
     self.taskBox['values'] = self.tasks.getActiveTasks()
     self.refresh()
+
+  def copyTime(self):
+    task = self.taskBox.get()
+    taskTime = self.tasks.getTaskTime(task)
+    self.tasks.updateTaskTime(task, taskTime)
+    self.master.clipboard_clear()
+    self.master.clipboard_append(TimeFormatter('dh', True).get(taskTime))
+
+  def deleteTask(self):
+    self.tasks.remove(self.taskBox.get())
+    self.taskBox.set('')
+    self.taskBox['values'] = self.tasks.getActiveTasks()
+    self.refresh()
+
+  def keepTiming(self):
+    self.tasks.keepTimingWhenOff = not self.tasks.keepTimingWhenOff
+    self.setKeepTimingButtonRelief()
+
+  def getKeepTimingButtonRelief(self):
+    return 'sunken' if self.tasks.keepTimingWhenOff else 'raised'
+
+  def setKeepTimingButtonRelief(self):
+    self.keepWhenClosedButton.config(relief=self.getKeepTimingButtonRelief())
 
   def isWorkstationLocked(self):
     windowId = win32gui.GetForegroundWindow()
@@ -85,13 +123,15 @@ class TaskState(object):
 
 
 class TaskTime(object):
+  timeProvider = time.localtime
+
   def __init__(self, data):
     if isinstance(data, dict):
       self.name = data['name']
       self.time = time.struct_time(tuple(data['time']))
     else:
       self.name = data
-      self.time = time.localtime()
+      self.time = TaskTime.timeProvider()
 
   def getTime(self):
     return time.mktime(self.time)
@@ -99,6 +139,7 @@ class TaskTime(object):
 
 class TasksData(object):
   def __init__(self, dataFile=None):
+    self.keepTimingWhenOff = False
     if dataFile is None:
       self.tasks = []
       self.times = []
@@ -107,11 +148,13 @@ class TasksData(object):
         data = json.load(source)
         self.tasks = [TaskState(item) for item in data['tasks']]
         self.times = [TaskTime(item) for item in data['times']]
-        lastTask = self.getLastTask()
-        if lastTask != '' and self.times[-1].name is None:
-          self.add(lastTask)
+        self.continueLastTask()
 
   def save(self, dataFile):
+    if self.keepTimingWhenOff:
+      self.keepTimingWhenOff = False
+    else:
+      self.add(None)
     with dataFile as target:
       json.dump({ 'tasks' : [item.__dict__ for item in self.tasks], 'times' : [item.__dict__ for item in self.times] }, target)
 
@@ -139,6 +182,11 @@ class TasksData(object):
           return item.name
         break
     return ''
+
+  def continueLastTask(self):
+    lastTask = self.getLastTask()
+    if lastTask != '' and self.times[-1].name is None:
+      self.add(lastTask)
 
   def getActiveTasks(self):
     return [item.name for item in self.tasks if item.active]

@@ -38,17 +38,18 @@ class Test_TaskTimerTest(unittest.TestCase):
     self.assertEqual(task.__dict__, {'name' : 'SDC-987', 'reportedTime' : 345.0, 'active' : True})
 
   def test_TaskTimeFromString(self):
-    timeBefore = time.time()
+    TaskTime.timeProvider = lambda : time.struct_time((2020, 2, 25, 8, 12, 0, 1, 56, -1))
     task1 = TaskTime('SDC-099')
-    time.sleep(2)
+    TaskTime.timeProvider = lambda : time.struct_time((2020, 2, 25, 12, 20, 0, 1, 56, -1))
     task2 = TaskTime('SDC-001')
-    time.sleep(2)
+    TaskTime.timeProvider = lambda : time.struct_time((2020, 2, 25, 14, 52, 30, 1, 56, -1))
     idle = TaskTime(None)
     self.assertEqual(task1.name, 'SDC-099')
     self.assertEqual(task2.name, 'SDC-001')
     self.assertEqual(idle.name, None)
-    self.assertLess(task1.time, task2.time)
-    self.assertLess(task2.time, idle.time)
+    self.assertEqual(task1.time, time.struct_time((2020, 2, 25, 8, 12, 0, 1, 56, -1)))
+    self.assertEqual(task2.time, time.struct_time((2020, 2, 25, 12, 20, 0, 1, 56, -1)))
+    self.assertEqual(idle.time, time.struct_time((2020, 2, 25, 14, 52, 30, 1, 56, -1)))
 
   def test_TaskTimeFromDict(self):
     task1 = TaskTime({'name' : 'SDC-987', 'time' : [2020, 2, 25, 8, 12, 0, 1, 56, -1]})
@@ -78,6 +79,7 @@ class Test_TaskTimerTest(unittest.TestCase):
     self.assertEqual(taskData.tasks[1].name, 'SDC-002')
     self.assertEqual(taskData.tasks[1].reportedTime, 780.0)
     self.assertFalse(taskData.tasks[1].active)
+    self.assertFalse(taskData.keepTimingWhenOff)
     self.assertEqual(len(taskData.times), 3)
     self.assertEqual(taskData.times[0].name, 'SDC-001')
     self.assertEqual(taskData.times[0].time, time.struct_time((2020, 2, 26, 7, 43, 0, 2, 57, -1)))
@@ -89,7 +91,7 @@ class Test_TaskTimerTest(unittest.TestCase):
     self.assertEqual(taskData.times[2].getTime() - taskData.times[1].getTime(), 29 * 60 + 15)
 
   def test_TasksDataFromJsonReactivateTask(self):
-    beforeTime = int(time.time())
+    TaskTime.timeProvider = lambda : time.struct_time((2020, 2, 26, 15, 32, 0, 1, 56, -1))
     data = DataIO('''{ "tasks" : [ {"name" : "SDC-001", "reportedTime" : 0.0, "active" : true},
       {"name" : "SDC-002", "reportedTime" : 780.0, "active" : true} ],
       "times" : [ { "name" : "SDC-001", "time" : [2020, 2, 26, 7, 43, 0, 2, 57, -1] },
@@ -104,6 +106,7 @@ class Test_TaskTimerTest(unittest.TestCase):
     self.assertEqual(taskData.tasks[1].name, 'SDC-002')
     self.assertEqual(taskData.tasks[1].reportedTime, 780.0)
     self.assertTrue(taskData.tasks[1].active)
+    self.assertFalse(taskData.keepTimingWhenOff)
     self.assertEqual(len(taskData.times), 4)
     self.assertEqual(taskData.times[0].name, 'SDC-001')
     self.assertEqual(taskData.times[0].time, time.struct_time((2020, 2, 26, 7, 43, 0, 2, 57, -1)))
@@ -112,8 +115,7 @@ class Test_TaskTimerTest(unittest.TestCase):
     self.assertEqual(taskData.times[2].name, None)
     self.assertEqual(taskData.times[2].time, time.struct_time((2020, 2, 26, 11, 50, 45, 2, 57, -1)))
     self.assertEqual(taskData.times[3].name, 'SDC-002')
-    self.assertGreaterEqual(taskData.times[3].getTime(), beforeTime)
-    self.assertLessEqual(taskData.times[3].getTime(), time.time())
+    self.assertEqual(taskData.times[3].time, time.struct_time((2020, 2, 26, 15, 32, 0, 1, 56, -1)))
 
   def test_TasksDataToJson(self):
     taskData = TasksData()
@@ -123,21 +125,44 @@ class Test_TaskTimerTest(unittest.TestCase):
                       TaskState({'name' : 'SDC-008', 'reportedTime' : 47.0, 'active' : False})]
     taskData.times = [TaskTime({'name' : None, 'time' : [2020, 2, 25, 11, 2, 0, 1, 56, -1]}),
                       TaskTime({'name' : 'SDC-007', 'time' : [2020, 2, 25, 12, 26, 0, 1, 56, -1]})]
+    taskData.keepTimingWhenOff = True
     jsonData = DataIO()
     taskData.save(jsonData)
+    self.assertFalse(taskData.keepTimingWhenOff)
     self.assertRaises(ValueError, jsonData.getvalue)
     testData = json.loads(jsonData.result)
     self.assertEqual(testData, {'tasks' : [{'name' : 'SDC-007', 'reportedTime' : 100.0, 'active' : True},
                                            {'name' : 'SDC-008', 'reportedTime' : 47.0, 'active' : False}],
                                'times' : [{'name' : None, 'time' : [2020, 2, 25, 11, 2, 0, 1, 56, -1]},
-                                          {'name' : 'SDC-007', 'time' : [2020, 2, 25, 12, 26, 0, 1, 56, -1]}]})
+                                          {'name' : 'SDC-007', 'time' : [2020, 2, 25, 12, 26, 0, 1, 56, -1]}] })
+
+  def test_TasksDataToJson_NotKeepingTimingAfterSave(self):
+    TaskTime.timeProvider = lambda : time.struct_time((2020, 2, 25, 18, 43, 0, 2, 56, -1))
+    taskData = TasksData()
+    self.assertEqual(taskData.tasks, [])
+    self.assertEqual(taskData.times, [])
+    taskData.tasks = [TaskState({'name' : 'SDC-007', 'reportedTime' : 100.0, 'active' : True}),
+                      TaskState({'name' : 'SDC-008', 'reportedTime' : 47.0, 'active' : False})]
+    taskData.times = [TaskTime({'name' : None, 'time' : [2020, 2, 25, 11, 2, 0, 1, 56, -1]}),
+                      TaskTime({'name' : 'SDC-007', 'time' : [2020, 2, 25, 12, 26, 0, 1, 56, -1]})]
+    jsonData = DataIO()
+    taskData.save(jsonData)
+    self.assertFalse(taskData.keepTimingWhenOff)
+    self.assertRaises(ValueError, jsonData.getvalue)
+    testData = json.loads(jsonData.result)
+    self.assertEqual(testData, {'tasks' : [{'name' : 'SDC-007', 'reportedTime' : 100.0, 'active' : True},
+                                           {'name' : 'SDC-008', 'reportedTime' : 47.0, 'active' : False}],
+                               'times' : [{'name' : None, 'time' : [2020, 2, 25, 11, 2, 0, 1, 56, -1]},
+                                          {'name' : 'SDC-007', 'time' : [2020, 2, 25, 12, 26, 0, 1, 56, -1]},
+                                          {'name' : None, 'time' : [2020, 2, 25, 18, 43, 0, 2, 56, -1]}] })
 
   def test_TasksDataAddCurrentTask(self):
     taskData = TasksData()
+    TaskTime.timeProvider = lambda : time.struct_time((2020, 2, 26, 7, 43, 0, 2, 57, -1))
     taskData.add('SDC-011')
-    time.sleep(2)
+    TaskTime.timeProvider = lambda : time.struct_time((2020, 2, 26, 9, 11, 0, 2, 57, -1))
     taskData.add(None)
-    time.sleep(1)
+    TaskTime.timeProvider = lambda : time.struct_time((2020, 2, 26, 9, 16, 0, 2, 57, -1))
     taskData.add('SDC-011')
     self.assertEqual(len(taskData.tasks), 1)
     self.assertEqual(taskData.tasks[0].name, 'SDC-011')
@@ -145,17 +170,19 @@ class Test_TaskTimerTest(unittest.TestCase):
     self.assertTrue(taskData.tasks[0].active)
     self.assertEqual(len(taskData.times), 3)
     self.assertEqual(taskData.times[0].name, 'SDC-011')
+    self.assertEqual(taskData.times[0].time, time.struct_time((2020, 2, 26, 7, 43, 0, 2, 57, -1)))
     self.assertEqual(taskData.times[1].name, None)
-    self.assertGreater(taskData.times[1].getTime(), taskData.times[0].getTime())
+    self.assertEqual(taskData.times[0].time, time.struct_time((2020, 2, 26, 7, 43, 0, 2, 57, -1)))
     self.assertEqual(taskData.times[2].name, 'SDC-011')
-    self.assertGreater(taskData.times[2].getTime(), taskData.times[1].getTime())
+    self.assertEqual(taskData.times[0].time, time.struct_time((2020, 2, 26, 7, 43, 0, 2, 57, -1)))
 
   def test_TasksDataRemoveTask(self):
     data = io.StringIO('''{ "tasks" : [ { "name" : "SDC-001", "reportedTime" : 150.0, "active" : true },
       { "name" : "SDC-002", "reportedTime" : 78.0, "active" : false } ],
       "times" : [ { "name" : "SDC-001", "time" : [2020, 2, 26, 7, 43, 0, 2, 57, -1] },
       { "name" : null, "time" : [2020, 2, 26, 11, 21, 30, 2, 57, -1] },
-      { "name" : "SDC-002", "time" : [2020, 2, 26, 11, 50, 45, 2, 57, -1] } ] }''')
+      { "name" : "SDC-002", "time" : [2020, 2, 26, 11, 50, 45, 2, 57, -1] } ],
+      "keepTimingWhenOff" : false }''')
     taskData = TasksData(data)
     taskData.remove('SDC-003')
     self.assertEqual(len(taskData.tasks), 2)
