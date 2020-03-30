@@ -17,6 +17,12 @@ class TaskTimerApp(tkinter.Frame):
     master.grid_columnconfigure(0, weight=1)
     self.grid(column=0, row=0, sticky=tkinter.NSEW)
 
+    self.master.protocol('WM_DELETE_WINDOW', self.finish)
+    self.configFile = DataFile('config.json')
+    config = self.configFile.forLoad()
+    if config is not None:
+      self.master.geometry(json.load(config)['position'])
+
     self.dataFile = DataFile('tasksData.json')
     self.tasks = TasksData(self.dataFile.forLoad())
     self.workstationActive = True
@@ -49,6 +55,9 @@ class TaskTimerApp(tkinter.Frame):
 
   def finish(self):
     self.save()
+    with self.configFile.forSave() as config:
+      json.dump({'position' : '+' + str(self.master.winfo_x()) + '+' + str(self.master.winfo_y())}, config)
+    self.master.destroy()
 
   def refresh(self):
     self.currentTime.set(self.currentTimeFormat.get(self.tasks.getTaskTimeTillNow(self.currentTask.get())))
@@ -269,4 +278,3 @@ if __name__ == '__main__':
   root = tkinter.Tk()
   app = TaskTimerApp(master=root)
   app.mainloop()
-  app.finish()
