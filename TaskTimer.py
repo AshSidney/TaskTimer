@@ -2,26 +2,34 @@ import tkinter
 import tkinter.ttk
 import time
 import json
-import math
+import pathlib
+import os
+import sys
+import sqlite3
+import datetime
 import win32gui
 import win32process
 import win32api
 import win32con
+import win32ts
 
 
 class TaskTimerApp(tkinter.Frame):
   def __init__(self, master=None):
     super().__init__(master)
-    master.title('Task Timer')
-    master.grid_rowconfigure(0, weight=1)
-    master.grid_columnconfigure(0, weight=1)
-    self.grid(column=0, row=0, sticky=tkinter.NSEW)
-
-    self.master.protocol('WM_DELETE_WINDOW', self.finish)
+    self.db = TaskTimeDb('-bg' in sys.argv)
+    self.initSessionWatch()
     self.configFile = DataFile('config.json')
     config = self.configFile.forLoad()
     if config is not None:
       self.master.geometry(json.load(config)['position'])
+    
+    self.master.title('Task Timer')
+    self.master.grid_rowconfigure(0, weight=1)
+    self.master.grid_columnconfigure(0, weight=1)
+    self.grid(column=0, row=0, sticky=tkinter.NSEW)
+
+    self.master.protocol('WM_DELETE_WINDOW', self.finish)
 
     self.dataFile = DataFile('tasksData.json')
     self.tasks = TasksData(self.dataFile.forLoad())
@@ -35,7 +43,7 @@ class TaskTimerApp(tkinter.Frame):
     self.currentTime = tkinter.StringVar()
     self.currentTimeLabel = tkinter.ttk.Label(self, textvariable=self.currentTime, font=('Helvetica', 14))
     self.currentTimeLabel.grid(column=1, row=0, columnspan=2)
-    self.currentTimeFormat = TimeFormatter('dhms', False)
+    self.currentTimeFormat = TimeFormatter('hms', False)
     self.taskBox = tkinter.ttk.Combobox(self, values=self.tasks.getActiveTasks())
     self.taskBox.set(lastTask)
     self.taskBox.grid(column=0, row=1)
@@ -50,17 +58,29 @@ class TaskTimerApp(tkinter.Frame):
 
     self.repeatedRefresh()
 
+  def initSessionWatch(self):
+    hwnd = self.master.winfo_id()
+    win32ts.WTSRegisterSessionNotification(hwnd, win32ts.NOTIFY_FOR_ALL_SESSIONS)
+    self.defaultProc = win32gui.SetWindowLong(hwnd, win32con.GWL_WNDPROC, self.winProc)
+
+  def winProc(self, hWnd, msg, wParam, lParam):
+    WM_WTSSESSION_CHANGE = 0x2B1
+    if msg == WM_WTSSESSION_CHANGE:
+      self.db.addEvent(self.db.closeId if wParam == 7 else self.db.openId)
+    return win32gui.CallWindowProc(self.defaultProc, hWnd, msg, wParam, lParam)
+  
   def save(self):
     self.tasks.save(self.dataFile.forSave())
 
   def finish(self):
+    self.db.close()
     self.save()
     with self.configFile.forSave() as config:
       json.dump({'position' : '+' + str(self.master.winfo_x()) + '+' + str(self.master.winfo_y())}, config)
     self.master.destroy()
 
   def refresh(self):
-    self.currentTime.set(self.currentTimeFormat.get(self.tasks.getTaskTimeTillNow(self.currentTask.get())))
+    self.currentTime.set(str(self.db.getTodayWorkTime() - self.db.getLunchTime()))
 
   def repeatedRefresh(self):
     self.checkLock()
@@ -117,6 +137,78 @@ class TaskTimerApp(tkinter.Frame):
       return'LockApp' in fileName
     except Exception:
       return False
+
+
+class TaskTimeDb:
+  def __init__(self, background, dbName = 'TaskTimer.db'):
+    self.openId = 'open'
+    self.closeId = 'close'
+    self.lunchId = 'lunch'
+    if dbName == ':memory:':
+      self.dataConn = sqlite3.connect(dbName)
+    else:
+      dataDir = pathlib.Path('data')
+      if not dataDir.exists():
+        os.mkdir(self.dataDir)
+      self.dataConn = sqlite3.connect(dataDir / dbName)
+    curs = self.dataConn.cursor()
+    noEventTable = curs.execute('SELECT * FROM sqlite_master WHERE type = "table" AND name = "Event"').fetchone() is None
+    if noEventTable:
+      curs.execute('CREATE TABLE Event(id TEXT, time TEXT)')
+    self.addEvent(self.closeId if background else self.openId)
+
+  def close(self):
+    self.addEvent(self.closeId)
+  
+  def addEvent(self, id):
+    lastId = self.dataConn.cursor().execute('SELECT id, time, rowid FROM Event ORDER BY time DESC, rowid DESC').fetchone()
+    if lastId is not None and lastId[0] != id or lastId is None and id != self.closeId:
+      self.dataConn.cursor().execute('INSERT INTO Event(id, time) VALUES(:id, datetime("now", "localtime"))', {'id' : id})
+      self.dataConn.commit()
+      self.setLunchTime()
+
+  def getTodayWorkTime(self):
+    curs = self.dataConn.cursor()
+    lastData = curs.execute('SELECT id, time, datetime("now", "localtime") FROM Event ORDER BY time DESC').fetchone()
+    if lastData is None:
+      return datetime.timedelta(0)
+    lastTime = lastData[1] if lastData[0] == self.closeId else lastData[2]
+    startTime = curs.execute('SELECT time FROM Event WHERE date(time) = date(:last) AND id != :closeId ORDER BY time',
+      {'last' : lastTime, 'closeId' : self.closeId}).fetchone()
+    if startTime is None:
+      return datetime.timedelta(0)
+    return datetime.datetime.fromisoformat(lastTime) - datetime.datetime.fromisoformat(startTime[0])
+
+  def getDayWorkTime(self, day):
+    curs = self.dataConn.cursor()
+    startTime = curs.execute('SELECT time FROM Event WHERE date(time) = :day AND id != :closeId ORDER BY time',
+      {'day' : day.isoformat(), 'closeId' : self.closeId}).fetchone()
+    lastTime = curs.execute('SELECT time FROM Event WHERE date(time) = :day AND id = :closeId ORDER BY time DESC',
+      {'day' : day.isoformat(), 'closeId' : self.closeId}).fetchone()
+    if startTime is None or lastTime is None:
+      return datetime.timedelta(0)
+    return datetime.datetime.fromisoformat(lastTime[0]) - datetime.datetime.fromisoformat(startTime[0])
+
+  def getLunchTime(self, day=datetime.date.today()):
+    curs = self.dataConn.cursor()
+    startTime = curs.execute('SELECT time FROM Event WHERE date(time) = :day AND id = :lunchId ORDER BY time',
+      {'day' : day.isoformat(), 'lunchId' : self.lunchId}).fetchone()
+    if startTime is not None:
+      lastTime = curs.execute('SELECT time FROM Event WHERE time > :lunchTime ORDER BY time',
+        {'lunchTime' : startTime[0]}).fetchone()
+      if lastTime is not None:
+        return datetime.datetime.fromisoformat(lastTime[0]) - datetime.datetime.fromisoformat(startTime[0])
+    return datetime.timedelta(0)
+
+  def setLunchTime(self):
+    lunchTime = datetime.date.today().isoformat() + ' 11:00:00'
+    curs = self.dataConn.cursor()
+    lunchData = curs.execute('SELECT id, time FROM Event WHERE time >= :lunchTime ORDER BY time', {'lunchTime' : lunchTime}).fetchone()
+    if lunchData is not None:
+      if lunchData[0] == self.closeId:
+        curs.execute('UPDATE Event SET id = :lunchId WHERE id = :closeId AND time = :time',
+          {'lunchId' : self.lunchId, 'closeId' : self.closeId, 'time' : lunchData[1]})
+    self.dataConn.commit()
 
 
 class TaskState(object):
