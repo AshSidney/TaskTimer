@@ -149,7 +149,7 @@ class TaskTimeDb:
     else:
       dataDir = pathlib.Path('data')
       if not dataDir.exists():
-        os.mkdir(self.dataDir)
+        os.mkdir(dataDir)
       self.dataConn = sqlite3.connect(dataDir / dbName)
     curs = self.dataConn.cursor()
     noEventTable = curs.execute('SELECT * FROM sqlite_master WHERE type = "table" AND name = "Event"').fetchone() is None
