@@ -71,6 +71,12 @@ class Test_TaskTimeDb(unittest.TestCase):
     db.setLunchTime()
     self.assertEqual(db.getLunchTime(), datetime.timedelta(minutes=34, seconds=2))
 
+  def test_setLunchTime_before11(self):
+    db = TaskTimeDb(True, self.memDb)
+    self.fillTestData(db, (('open', '07:27:00'), ('close', '10:50:00'), ('open', '11:24:15'), ('close', '12:10:00'), ('open', '12:45:00'), ('close', '14:40:00')))
+    db.setLunchTime()
+    self.assertEqual(db.getLunchTime(), datetime.timedelta(minutes=34, seconds=15))
+
 
 class DataIO(io.StringIO):
   def __init__(self, *args, **kwargs):

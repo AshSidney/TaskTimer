@@ -189,7 +189,9 @@ class TaskTimeDb:
       return datetime.timedelta(0)
     return datetime.datetime.fromisoformat(lastTime[0]) - datetime.datetime.fromisoformat(startTime[0])
 
-  def getLunchTime(self, day=datetime.date.today()):
+  def getLunchTime(self, day=None):
+    if day is None:
+      day = datetime.date.today()
     curs = self.dataConn.cursor()
     startTime = curs.execute('SELECT time FROM Event WHERE date(time) = :day AND id = :lunchId ORDER BY time',
       {'day' : day.isoformat(), 'lunchId' : self.lunchId}).fetchone()
@@ -201,13 +203,20 @@ class TaskTimeDb:
     return datetime.timedelta(0)
 
   def setLunchTime(self):
-    lunchTime = datetime.date.today().isoformat() + ' 11:00:00'
+    lunchStartTime = datetime.date.today().isoformat() + ' 11:00:00'
     curs = self.dataConn.cursor()
-    lunchData = curs.execute('SELECT id, time FROM Event WHERE time >= :lunchTime ORDER BY time', {'lunchTime' : lunchTime}).fetchone()
+    lunchData = curs.execute('SELECT id, time FROM Event WHERE time >= :lunchTime ORDER BY time', {'lunchTime' : lunchStartTime}).fetchone()
     if lunchData is not None:
+      lunchTime = None
       if lunchData[0] == self.closeId:
+        lunchTime = lunchData[1]
+      else:
+        lunchData = curs.execute('SELECT id, time FROM Event WHERE time < :lunchTime ORDER BY time DESC', {'lunchTime' : lunchStartTime}).fetchone()
+        if lunchData is not None and lunchData[0] == self.closeId:
+          lunchTime = lunchData[1]
+      if lunchTime is not None:
         curs.execute('UPDATE Event SET id = :lunchId WHERE id = :closeId AND time = :time',
-          {'lunchId' : self.lunchId, 'closeId' : self.closeId, 'time' : lunchData[1]})
+          {'lunchId' : self.lunchId, 'closeId' : self.closeId, 'time' : lunchTime})
     self.dataConn.commit()
 
 
