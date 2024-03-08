@@ -190,9 +190,12 @@ class TaskTimeDb:
     return datetime.datetime.fromisoformat(lastTime[0]) - datetime.datetime.fromisoformat(startTime[0])
 
   def getLunchTime(self, day=None):
-    minLunchTime = datetime.timedelta(minutes=30) if datetime.time().hour >= 12 else datetime.timedelta(0)
     if day is None:
       day = datetime.date.today()
+      workTime = self.getTodayWorkTime()
+    else:
+      workTime = self.getDayWorkTime(day)
+    minLunchTime = datetime.timedelta(minutes=30 if workTime >= datetime.timedelta(hours=6) else 0) 
     curs = self.dataConn.cursor()
     startTime = curs.execute('SELECT time FROM Event WHERE date(time) = :day AND id = :lunchId ORDER BY time',
       {'day' : day.isoformat(), 'lunchId' : self.lunchId}).fetchone()
