@@ -192,10 +192,10 @@ class TaskTimeDb:
   def getLunchTime(self, day=None):
     if day is None:
       day = datetime.date.today()
-      workTime = self.getTodayWorkTime()
+      minLunchTime = datetime.timedelta(minutes=30) 
     else:
       workTime = self.getDayWorkTime(day)
-    minLunchTime = datetime.timedelta(minutes=30 if workTime >= datetime.timedelta(hours=6) else 0) 
+      minLunchTime = datetime.timedelta(minutes=30 if workTime >= datetime.timedelta(hours=6) else 0) 
     curs = self.dataConn.cursor()
     startTime = curs.execute('SELECT time FROM Event WHERE date(time) = :day AND id = :lunchId ORDER BY time',
       {'day' : day.isoformat(), 'lunchId' : self.lunchId}).fetchone()
@@ -207,8 +207,12 @@ class TaskTimeDb:
     return minLunchTime
 
   def setLunchTime(self):
-    lunchStartTime = datetime.date.today().isoformat() + ' 11:00:00'
+    today = datetime.date.today().isoformat()
     curs = self.dataConn.cursor()
+    if curs.execute('SELECT COUNT(*) FROM Event WHERE date(time) == :today AND id = :lunchId',
+      {'today' : today, "lunchId" : self.lunchId}).fetchone()[0] > 0:
+      return
+    lunchStartTime = today + ' 11:00:00'
     lunchData = curs.execute('SELECT id, time FROM Event WHERE time >= :lunchTime ORDER BY time', {'lunchTime' : lunchStartTime}).fetchone()
     if lunchData is not None:
       lunchTime = None
